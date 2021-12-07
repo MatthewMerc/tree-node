@@ -1,6 +1,21 @@
-import { DataSource, CollectionViewer, SelectionChange } from '@angular/cdk/collections';
+import {
+  DataSource,
+  CollectionViewer,
+  SelectionChange,
+} from '@angular/cdk/collections';
 import { FlatTreeControl } from '@angular/cdk/tree';
-import { BehaviorSubject, Observable, merge, map, take, lastValueFrom } from 'rxjs';
+import {
+  BehaviorSubject,
+  Observable,
+  merge,
+  map,
+  take,
+  lastValueFrom,
+  tap,
+  switchMap,
+  concatAll,
+  mergeAll,
+} from 'rxjs';
 import { DynamicFlatNode } from './app.component';
 import { DynamicDatabase } from './tree-data-source';
 
@@ -11,7 +26,7 @@ import { DynamicDatabase } from './tree-data-source';
  * The input will be a json object string, and the output is a list of `FileNode` with nested
  * structure.
  */
- export class DynamicDataSource implements DataSource<DynamicFlatNode> {
+export class DynamicDataSource implements DataSource<DynamicFlatNode> {
   dataChange = new BehaviorSubject<DynamicFlatNode[]>([]);
 
   get data(): DynamicFlatNode[] {
@@ -24,11 +39,11 @@ import { DynamicDatabase } from './tree-data-source';
 
   constructor(
     private _treeControl: FlatTreeControl<DynamicFlatNode>,
-    private _database: DynamicDatabase,
+    private _database: DynamicDatabase
   ) {}
 
   connect(collectionViewer: CollectionViewer): Observable<DynamicFlatNode[]> {
-    this._treeControl.expansionModel.changed.subscribe(change => {
+    this._treeControl.expansionModel.changed.subscribe((change) => {
       if (
         (change as SelectionChange<DynamicFlatNode>).added ||
         (change as SelectionChange<DynamicFlatNode>).removed
@@ -37,7 +52,9 @@ import { DynamicDatabase } from './tree-data-source';
       }
     });
 
-    return merge(collectionViewer.viewChange, this.dataChange).pipe(map(() => this.data));
+    return merge(collectionViewer.viewChange, this.dataChange).pipe(
+      map(() => this.data)
+    );
   }
 
   disconnect(collectionViewer: CollectionViewer): void {}
@@ -45,50 +62,69 @@ import { DynamicDatabase } from './tree-data-source';
   /** Handle expand/collapse behaviors */
   handleTreeControl(change: SelectionChange<DynamicFlatNode>) {
     if (change.added) {
-      change.added.forEach(node => this.toggleNode(node, true));
+      change.added.forEach((node) => this.toggleNode(node, true));
     }
     if (change.removed) {
       change.removed
         .slice()
         .reverse()
-        .forEach(node => this.toggleNode(node, false));
+        .forEach((node) => this.toggleNode(node, false));
     }
   }
 
   /**
    * Toggle the node, remove from display list
    */
-   toggleNode(node: DynamicFlatNode, expand: boolean) {
+  toggleNode(node: DynamicFlatNode, expand: boolean) {
     const children = this._database.getChildren(node.item);
-    console.log(this._database.dataMap);
-
     node.isLoading = true;
-
-    (!children) ?
-      this._database.fetchChildren$(node.item).pipe(take(1)).subscribe(children => {this.test(expand, children,node)})
-      : this.test(expand,children,node)
+    this.test(
+      expand,
+      children ?? this._database.fetchChildren$(node.item),
+      node
+    );
   }
 
-  test(expand: boolean, children:string[],node: DynamicFlatNode ) {
-    const index = this.data.indexOf(node);
-
-    if (expand) {
-      const nodes = children.map(
-        (name: string) => new DynamicFlatNode(name, node.level + 1, this._database.isExpandable(name)),
-      );
-      this.data.splice(index + 1, 0, ...nodes);
-    } else {
-      let count = 0;
-      for (
-        let i = index + 1;
-        i < this.data.length && this.data[i].level > node.level;
-        i++, count++
-      ) {}
-      this.data.splice(index + 1, count);
-    }
-    console.log(this.data);
-    // notify the change
-    this.dataChange.next(this.data);
-    node.isLoading = false;
+  test(
+    expand: boolean,
+    children$: Observable<string[]>,
+    node: DynamicFlatNode
+  ) {
+    children$
+      .pipe(
+        take(1),
+        tap((children) => {
+          const index = this.data.indexOf(node);
+          if (expand) {
+            const nodes = children.map(
+              (name: string) =>
+                new DynamicFlatNode(
+                  name,
+                  node.level + 1,
+                  this._database.isExpandable(name)
+                )
+            );
+            this.data.splice(index + 1, 0, ...nodes);
+          } else {
+            let count = 0;
+            for (
+              let i = index + 1;
+              i < this.data.length && this.data[i].level > node.level;
+              i++, count++
+            ) {}
+            this.data.splice(index + 1, count);
+          }
+          // notify the change
+          this.dataChange.next(this.data);
+          node.isLoading = false;
+        }),
+        switchMap((children) =>
+          children
+            .filter((child) => child !== 'leaf')
+            .map((child) => this._database.fetchChildren$(child))
+        ),
+        mergeAll()
+      )
+      .subscribe();
   }
 }

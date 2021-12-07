@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { delay, Observable, of, tap } from 'rxjs';
+import { delay, Observable, of, shareReplay, tap } from 'rxjs';
 import { DynamicFlatNode } from './app.component';
 
 /**
@@ -8,12 +8,13 @@ import { DynamicFlatNode } from './app.component';
  */
  @Injectable({providedIn: 'root'})
  export class DynamicDatabase {
-   dataMap = new Map<string, string[]>([
-     ['Fruits', ['Apple', 'Orange', 'Banana']],
-     ['Vegetables', ['Tomato', 'Potato', 'Onion']],
-     ['Apple', ['Fuji', 'Macintosh']],
-     ['Onion', ['Yellow', 'White', 'Purple']],
+   dataMap = new Map<string, Observable<string[]>>([
+     ['Fruits', of(['Apple', 'Orange', 'Banana'])],
+     ['Vegetables', of(['Tomato', 'Potato', 'Onion'])],
+     ['Apple', of(['Fuji', 'Macintosh'])],
+     ['Onion', of(['Yellow', 'White', 'Purple'])],
    ]);
+
 
    rootLevelNodes: string[] = ['Fruits', 'Vegetables'];
 
@@ -28,13 +29,20 @@ import { DynamicFlatNode } from './app.component';
    }
 
    fetchChildren$(node: string): Observable<string[]> {
-     const test = Math.random() < .5  ?['leaf'] : [Math.random().toString()];
-     return of(test).pipe(delay(1000),tap(res => {this.dataMap.set(node,res)}))
+     if(!!this.dataMap.get(node)) {
+       return this.dataMap.get(node) as Observable<string[]>;
+     }
+     const test = [...new Array(3)].map(this.genNode)
+     const children$ = of(test).pipe(delay(5000),shareReplay(1));
+     this.dataMap.set(node,children$);
+     return children$;
    }
 
    isExpandable(node: string): boolean {
      return node !== 'leaf';
    }
+   private i = 0;
+   private genNode  = () => Math.random() < .5 ? 'leaf' : (++this.i).toString();
 
 
  }
