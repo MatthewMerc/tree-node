@@ -18,13 +18,6 @@ import {
 import { DynamicFlatNode } from './app.component';
 import { DynamicDatabase } from './tree-data-source';
 
-/**
- * File database, it can build a tree structured Json object from string.
- * Each node in Json object represents a file or a directory. For a file, it has filename and type.
- * For a directory, it has filename and children (a list of files or directories).
- * The input will be a json object string, and the output is a list of `FileNode` with nested
- * structure.
- */
 export class DynamicDataSource implements DataSource<DynamicFlatNode> {
   dataChange = new BehaviorSubject<DynamicFlatNode[]>([]);
 
@@ -93,25 +86,9 @@ export class DynamicDataSource implements DataSource<DynamicFlatNode> {
       take(1),
       tap((children) => {
         const index = this.data.indexOf(node);
-        if (expand) {
-          const nodes = children.map(
-            (name: string) =>
-              new DynamicFlatNode(
-                name,
-                node.level + 1,
-                this._database.isExpandable(name)
-              )
-          );
-          this.data.splice(index + 1, 0, ...nodes);
-        } else {
-          let count = 0;
-          for (
-            let i = index + 1;
-            i < this.data.length && this.data[i].level > node.level;
-            i++, count++
-          ) {}
-          this.data.splice(index + 1, count);
-        }
+        expand
+          ? this.expandTreeSection(index, node, children)
+          : this.collapseTreeSection(index, node);
         // notify the change
         this.dataChange.next(this.data);
         node.isLoading = false;
@@ -119,13 +96,41 @@ export class DynamicDataSource implements DataSource<DynamicFlatNode> {
       this.loadChildren()
     );
 
-
   loadChildren = () =>
-      pipe(switchMap((children: string[]) =>
+    pipe(
+      switchMap((children: string[]) =>
         children
           .filter((child) => child !== 'leaf')
           .map((child) => this._database.fetchChildren$(child))
       ),
-      mergeAll())
+      mergeAll()
+    );
 
+  private expandTreeSection(
+    index: number,
+    node: DynamicFlatNode,
+    children: string[]
+  ) {
+    const nodes = children.map(
+      (child: string) =>
+        new DynamicFlatNode(
+          child,
+          node.level + 1,
+          this._database.isExpandable(child)
+        )
+    );
+    this.data.splice(index + 1, 0, ...nodes);
+  }
+
+  private collapseTreeSection(index: number, node: DynamicFlatNode) {
+    let hideCount = 0;
+    for (
+      let i = index + 1;
+      i < this.data.length && this.data[i].level > node.level;
+      i++
+    ) {
+      hideCount++;
+    }
+    this.data.splice(index + 1, hideCount);
+  }
 }
